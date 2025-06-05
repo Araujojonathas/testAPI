@@ -49,7 +49,7 @@ def buscar_por_id(
     id_eq3_contratante: str = Query(..., description="ID do contratante para buscar contratos")
 ):
     try:
-        df = ler_arquivo_dinamico(arquivo)
+        df = pd.read_excel(arquivo)
 
         if 'id_eq3_contratante' not in df.columns:
             return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
@@ -62,7 +62,6 @@ def buscar_por_id(
             return JSONResponse(status_code=404, content={"mensagem": "Nenhum contrato encontrado para esse ID."})
 
         contratos_agrupados = []
-
         for numero_contrato, grupo in df_filtrado.groupby('numero_contrato'):
             primeiro = grupo.iloc[0]
             contrato_info = {
@@ -98,7 +97,7 @@ def buscar_por_id(
             contrato_info["comissoes"] = comissoes
             contratos_agrupados.append(contrato_info)
 
-        # Converter todos os dados para tipos nativos do Python
+        # Função para conversão de tipos compatíveis com JSON
         def converter_tipos(obj):
             if isinstance(obj, (np.integer, np.int64)):
                 return int(obj)
@@ -112,6 +111,7 @@ def buscar_por_id(
                 return obj.strftime("%Y-%m-%d")
             return obj
 
+        # Aplicar conversão recursivamente
         for contrato in contratos_agrupados:
             for k, v in contrato.items():
                 if isinstance(v, list):
@@ -123,7 +123,5 @@ def buscar_por_id(
 
     except FileNotFoundError:
         return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"erro": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"erro": str(e)})
