@@ -1,76 +1,49 @@
-from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 import pandas as pd
-import numpy as np
 
-app = FastAPI()
-
-
-def ler_arquivo_dinamico(arquivo: str):
-    if not arquivo.lower().endswith(('.xlsx', '.csv')):
-        raise ValueError("Formato de arquivo não suportado. Use .xlsx ou .csv")
-
-    if arquivo.lower().endswith('.csv'):
-        df = pd.read_csv(arquivo)
-    else:
-        df = pd.read_excel(arquivo)
-
-    return df
-
-
-@app.get("/dados/")
-def ler_dados(arquivo: str = "contratos_fianca.xlsx"):
+def buscar_por_id(id_eq3_contratante: str):
     try:
-        df = ler_arquivo_dinamico(arquivo)
+        # Carrega o arquivo
+        df = pd.read_parquet("caminho/para/seuarquivo.parquet")  # ajuste o path aqui
 
+        # Verifica se a coluna existe
         if 'id_eq3_contratante' not in df.columns:
             return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
 
-        grouped = df.groupby('id_eq3_contratante')
-        resultado = {}
-
-        for id_contratante, grupo in grouped:
-            lista = grupo.drop(columns=['id_eq3_contratante']).to_dict(orient='records')
-            resultado[id_contratante] = lista
-
-        return resultado
-
-    except FileNotFoundError:
-        return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"erro": str(e)})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"erro": str(e)})
-
-
-@app.get("/buscar/")
-def buscar_por_id(
-    arquivo: str = "contratos_fianca.xlsx",
-    id_eq3_contratante: str = Query(..., description="ID do contratante para buscar contratos")
-):
-    try:
-        df = pd.read_excel(arquivo)
-
-        if 'id_eq3_contratante' not in df.columns:
-            return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
-
+        # Normaliza para comparação
         df['id_eq3_contratante'] = df['id_eq3_contratante'].astype(str).str.strip().str.upper()
         id_normalizado = id_eq3_contratante.strip().upper()
+
+        # Filtra os dados
         df_filtrado = df[df['id_eq3_contratante'] == id_normalizado]
 
         if df_filtrado.empty:
             return JSONResponse(status_code=404, content={"mensagem": "Nenhum contrato encontrado para esse ID."})
 
+        # Prepara a lista de contratos
         contratos_agrupados = []
-        for numero_contrato, grupo in df_filtrado.groupby('numero_contrato'):
+
+        colunas_comissao_esperadas = [
+            "tipo_comissao", "taxa_comissao", "situacao_comissao",
+            "situacao_comissao_anterior", "valor_saldo_atualizado_comissao",
+            "valor_comissao_abertura", "valor_pago", "valor_pago_juros",
+            "data_inicio_vigencia_comissao", "datas_fim_vigencia_comissao"
+        ]
+
+        for numero_contrato, grupo in df_filtrado.groupby("numero_contrato"):
+            grupo = grupo.copy()
+            grupo = grupo.where(pd.notnull(grupo), None)  # substitui NaN por None
+
             primeiro = grupo.iloc[0]
+
             contrato_info = {
                 "numero_contrato": numero_contrato,
-                "cnpj_contratante": primeiro.get("cnpj_contratante"),
+                "cnpj_contratante": primeiro.get("Cnpj_contratante"),
                 "nome_contratante": primeiro.get("nome_contratante"),
-                "nome_afiancado": primeiro.get("nome_afiancado"),
-                "nome_beneficiario": primeiro.get("nome_beneficiario"),
-                "valor_contrato_abertura": primeiro.get("valor_contrato_abertura"),
+                "nome_afiançado": primeiro.get("nome_afiançado"),
+                "nome_beneficiário": primeiro.get("nome_beneficiário"),
+                "valor_contrato": primeiro.get("valor_contrato"),
                 "valor_saldo_atualizado_contrato": primeiro.get("valor_saldo_atualizado_contrato"),
                 "data_abertura_contrato": primeiro.get("data_abertura_contrato"),
                 "data_inicio_operacao": primeiro.get("data_inicio_operacao"),
@@ -78,50 +51,25 @@ def buscar_por_id(
                 "nome_indexador": primeiro.get("nome_indexador"),
                 "percentual_taxa_carta": primeiro.get("percentual_taxa_carta"),
                 "indicador_renovacao_automatica": primeiro.get("indicador_renovacao_automatica"),
-                "tipo_comissionamento": primeiro.get("tipo_comissionamento"),
+                "tipo_pagamento_comissao": primeiro.get("tipo_pagamento_comissao"),
                 "periodicidade_comissao": primeiro.get("periodicidade_comissao"),
-                "agencia": primeiro.get("agencia"),
-                "conta": primeiro.get("conta"),
-                "digito": primeiro.get("digito"),
+                "agencia": {
+                    "agencia": primeiro.get("agencia"),
+                    "conta": primeiro.get("conta"),
+                    "digito": primeiro.get("digito")
+                }
             }
 
-            comissoes = grupo[[
-                "numero_comissao", "tipo_comissao", "taxa_comissao", "situacao_comissao",
-                "valor_esperado_abertura_comissao", "valor_comissao_abertura", "valor_saldo_atualizado_comissao",
-                "valor_vencimento_comissao", "valor_pago", "valor_pago_juros",
-                "data_inicio_vigencia_comissao", "data_fim_vigencia_comissao", "data_vencimento_comissao",
-                "indicador_comissao_atraso", "valor_mora_comissao", "valor_multa_comissao",
-                "valor_juros_comissao", "valor_apropriar_atual"
-            ]].sort_values(by="numero_comissao").to_dict(orient="records")
+            # Coleta colunas de comissão, se existirem
+            colunas_existentes = [col for col in colunas_comissao_esperadas if col in grupo.columns]
+            contrato_info["comissoes"] = grupo[colunas_existentes].to_dict(orient="records")
 
-            contrato_info["comissoes"] = comissoes
             contratos_agrupados.append(contrato_info)
 
-        # Função para conversão de tipos compatíveis com JSON
-        def converter_tipos(obj):
-            if isinstance(obj, (np.integer, np.int64)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float64)):
-                return float(obj)
-            elif isinstance(obj, (np.bool_,)):
-                return bool(obj)
-            elif pd.isna(obj):
-                return None
-            elif isinstance(obj, pd.Timestamp):
-                return obj.strftime("%Y-%m-%d")
-            return obj
-
-        # Aplicar conversão recursivamente
-        for contrato in contratos_agrupados:
-            for k, v in contrato.items():
-                if isinstance(v, list):
-                    contrato[k] = [{ck: converter_tipos(cv) for ck, cv in c.items()} for c in v]
-                else:
-                    contrato[k] = converter_tipos(v)
-
-        return contratos_agrupados
+        return JSONResponse(content=jsonable_encoder(contratos_agrupados))
 
     except FileNotFoundError:
-        return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
+        return JSONResponse(status_code=404, content={"erro": "Arquivo de dados não encontrado."})
+
     except Exception as e:
         return JSONResponse(status_code=500, content={"erro": str(e)})
