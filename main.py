@@ -5,23 +5,23 @@ import numpy as np
 
 app = FastAPI()
 
-def converter_tipos(obj):
-    if isinstance(obj, (np.integer, np.int64)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float64)):
-        return float(obj)
-    elif isinstance(obj, (np.bool_,)):
-        return bool(obj)
-    elif pd.isna(obj):
-        return None
-    elif isinstance(obj, pd.Timestamp):
-        return obj.strftime("%Y-%m-%d")
-    return obj
+
+def ler_arquivo_dinamico(arquivo: str):
+    if not arquivo.lower().endswith(('.xlsx', '.csv')):
+        raise ValueError("Formato de arquivo não suportado. Use .xlsx ou .csv")
+
+    if arquivo.lower().endswith('.csv'):
+        df = pd.read_csv(arquivo)
+    else:
+        df = pd.read_excel(arquivo)
+
+    return df
+
 
 @app.get("/dados/")
-def ler_excel(arquivo: str = "contratos_fianca.xlsx"):
+def ler_dados(arquivo: str = "contratos_fianca.xlsx"):
     try:
-        df = pd.read_excel(arquivo)
+        df = ler_arquivo_dinamico(arquivo)
 
         if 'id_eq3_contratante' not in df.columns:
             return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
@@ -37,8 +37,11 @@ def ler_excel(arquivo: str = "contratos_fianca.xlsx"):
 
     except FileNotFoundError:
         return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"erro": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"erro": str(e)})
+
 
 @app.get("/buscar/")
 def buscar_por_id(
@@ -46,22 +49,20 @@ def buscar_por_id(
     id_eq3_contratante: str = Query(..., description="ID do contratante para buscar contratos")
 ):
     try:
-        df = pd.read_excel(arquivo)
+        df = ler_arquivo_dinamico(arquivo)
 
         if 'id_eq3_contratante' not in df.columns:
             return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
 
-        # Normaliza strings
         df['id_eq3_contratante'] = df['id_eq3_contratante'].astype(str).str.strip().str.upper()
         id_normalizado = id_eq3_contratante.strip().upper()
-
-        # Filtra por ID
         df_filtrado = df[df['id_eq3_contratante'] == id_normalizado]
 
         if df_filtrado.empty:
             return JSONResponse(status_code=404, content={"mensagem": "Nenhum contrato encontrado para esse ID."})
 
         contratos_agrupados = []
+
         for numero_contrato, grupo in df_filtrado.groupby('numero_contrato'):
             primeiro = grupo.iloc[0]
             contrato_info = {
@@ -97,7 +98,20 @@ def buscar_por_id(
             contrato_info["comissoes"] = comissoes
             contratos_agrupados.append(contrato_info)
 
-        # Aplicar conversão de tipos nativos recursivamente
+        # Converter todos os dados para tipos nativos do Python
+        def converter_tipos(obj):
+            if isinstance(obj, (np.integer, np.int64)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float64)):
+                return float(obj)
+            elif isinstance(obj, (np.bool_,)):
+                return bool(obj)
+            elif pd.isna(obj):
+                return None
+            elif isinstance(obj, pd.Timestamp):
+                return obj.strftime("%Y-%m-%d")
+            return obj
+
         for contrato in contratos_agrupados:
             for k, v in contrato.items():
                 if isinstance(v, list):
@@ -109,5 +123,7 @@ def buscar_por_id(
 
     except FileNotFoundError:
         return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"erro": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"erro": str(e)})
