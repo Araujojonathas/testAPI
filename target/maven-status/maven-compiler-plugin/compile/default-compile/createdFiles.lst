@@ -1,0 +1,10 @@
+com/vencimentos/adapters/application/dto/ContratoResponse.class
+com/vencimentos/adapters/application/dto/ComissaoResponse.class
+com/vencimentos/adapters/controller/VencimentosController.class
+com/vencimentos/application/service/ContratoService.class
+com/vencimentos/domain/model/Comissao.class
+com/vencimentos/infraestruture/repository/ContratoRepository.class
+com/vencimentos/application/service/RedisConfig.class
+com/vencimentos/VencimentosApiApplication.class
+com/vencimentos/infraestruture/query/ValkeyConnectService.class
+com/vencimentos/domain/model/Contrato.class

@@ -1,0 +1,10 @@
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/application/service/ContratoService.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/infraestruture/query/ValkeyConnectService.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/VencimentosApiApplication.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/adapters/application/dto/ContratoResponse.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/infraestruture/repository/ContratoRepository.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/adapters/application/dto/ComissaoResponse.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/adapters/controller/VencimentosController.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/domain/model/Contrato.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/domain/model/Comissao.java
+/Users/jonathasmartinsaraujo/Documents/vencimentos-api/src/main/java/com/vencimentos/application/service/RedisConfig.java

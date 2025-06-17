@@ -1,0 +1,5 @@
+# Porta que a aplicação vai rodar
+server.port=8081
+
+# Context path (URL base da API)
+server.servlet.context-path=/minhaapi
