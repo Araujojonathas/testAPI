@@ -1,99 +1,90 @@
-from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
-import pandas as pd
-import numpy as np
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisShardInfo;
 
-app = FastAPI()
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.File;
+import java.io.FileInputStream;
+import java.nio.file.Files;
+import java.security.KeyStore;
+import java.util.Objects;
 
-@app.get("/buscar/")
-def buscar_por_id(
-    id_eq3_contratante: str = Query(..., description="ID do contratante para buscar contratos")
-):
-    arquivo = "contratos_fianca.xlsx"
-    try:
-        # Lê o arquivo Excel
-        df = pd.read_excel(arquivo)
+public class RedisSeeder {
 
-        # Verifica se a coluna existe
-        if 'id_eq3_contratante' not in df.columns:
-            return JSONResponse(status_code=400, content={"erro": "Coluna 'id_eq3_contratante' não encontrada."})
+    public static void main(String[] args) throws Exception {
+        // Caminho para o truststore JKS gerado a partir do ca.crt
+        String trustStorePath = "src/main/resources/certs/ca.jks";
+        String trustStorePassword = "changeit";
 
-        # Normaliza coluna
-        df['id_eq3_contratante'] = df['id_eq3_contratante'].astype(str).str.strip().str.upper()
-        id_normalizado = id_eq3_contratante.strip().upper()
+        // Inicializa contexto SSL
+        KeyStore trustStore = KeyStore.getInstance("JKS");
+        trustStore.load(new FileInputStream(trustStorePath), trustStorePassword.toCharArray());
 
-        # Filtra
-        df_filtrado = df[df['id_eq3_contratante'] == id_normalizado]
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(trustStore);
 
-        if df_filtrado.empty:
-            return JSONResponse(status_code=404, content={"mensagem": "Nenhum contrato encontrado para esse ID."})
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, tmf.getTrustManagers(), null);
 
-        contratos_agrupados = []
+        // Conexão com Redis via TLS
+        JedisShardInfo shardInfo = new JedisShardInfo("localhost", 6380, true);
+        shardInfo.setPassword("12345678");
+        shardInfo.setSslSocketFactory(sslContext.getSocketFactory());
 
-        # Conversão segura de tipos
-        def converter_tipos(obj):
-            if isinstance(obj, (np.integer, np.int64)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float64)):
-                return float(obj)
-            elif isinstance(obj, (np.bool_)):
-                return bool(obj)
-            elif pd.isna(obj):
-                return None
-            elif isinstance(obj, pd.Timestamp):
-                return obj.strftime("%Y-%m-%d")
-            return obj
+        try (Jedis jedis = new Jedis(shardInfo)) {
+            System.out.println("🔐 Conectado ao Redis via SSL");
 
-        for numero_contrato, grupo in df_filtrado.groupby("numero_contrato"):
-            grupo = grupo.where(pd.notnull(grupo), None)
-            primeiro = grupo.iloc[0]
+            ObjectMapper mapper = new ObjectMapper();
+            File dir = new File("src/main/resources/json");
 
-            contrato_info = {
-                "numero_contrato": numero_contrato,
-                "cnpj_contratante": primeiro.get("cnpj_contratante"),
-                "nome_contratante": primeiro.get("nome_contratante"),
-                "nome_afiançado": primeiro.get("nome_afiançado"),
-                "nome_beneficiario": primeiro.get("nome_beneficiario"),
-                "valor_contrato_abertura": primeiro.get("valor_contrato_abertura"),
-                "valor_saldo_atualizado_contrato": primeiro.get("valor_saldo_atualizado_contrato"),
-                "data_inicio_operacao": primeiro.get("data_inicio_operacao"),
-                "data_limite_operacao": primeiro.get("data_limite_operacao"),
-                "nome_indexador": primeiro.get("nome_indexador"),
-                "percentual_taxa_carta": primeiro.get("percentual_taxa_carta"),
-                "indicador_renovacao_automatica": primeiro.get("indicador_renovacao_automatica"),
-                "tipo_pagamento_comissao": primeiro.get("tipo_pagamento_comissao"),
-                "periodicidade_comissao": primeiro.get("periodicidade_comissao"),
-                "agencia": primeiro.get("agencia"),
-                "conta": primeiro.get("conta"),
-                "digito": primeiro.get("digito"),
+            for (File file : Objects.requireNonNull(dir.listFiles((d, name) -> name.endsWith(".json")))) {
+                String content = Files.readString(file.toPath());
+                JsonNode root = mapper.readTree(content);
+
+                if (root.isArray()) {
+                    for (JsonNode node : root) {
+                        JsonNode keyNode = node.get("id_eq3_contratante");
+                        if (keyNode != null) {
+                            String key = keyNode.asText();
+                            jedis.rpush(key, mapper.writeValueAsString(node));
+                            System.out.println("✅ Inserido no Redis (SSL): " + key);
+                        } else {
+                            System.err.println("⚠️ Campo 'id_eq3_contratante' ausente em: " + file.getName());
+                        }
+                    }
+                } else {
+                    System.err.println("⚠️ JSON não é um array: " + file.getName());
+                }
             }
 
-            # Só monta as comissões se a coluna existir
-            if 'numero_comissao' in grupo.columns:
-                comissoes = grupo[[
-                    "numero_comissao", "tipo_comissao", "situacao_comissao",
-                    "valor_pago", "data_inicio_comissao", "data_fim_comissao",
-                    "valor_comissao_abertura", "valor_pago_juros", "valor_multa_comissao",
-                    "valor_juros_comissao", "valor_apropriado_atual"
-                ]].fillna('').to_dict(orient="records")
-            else:
-                comissoes = []
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
-            contrato_info["comissoes"] = comissoes
 
-            # Conversão de tipos
-            for k, v in contrato_info.items():
-                if isinstance(v, list):
-                    contrato_info[k] = [{ck: converter_tipos(cv) for ck, cv in c.items()} for c in v]
-                else:
-                    contrato_info[k] = converter_tipos(v)
+version: '3.8'
+services:
+  redis:
+    image: redis:7.2
+    container_name: redis-mock
+    ports:
+      - "6379:6379"
+      - "6380:6380"  # Porta TLS
+    command:
+      - redis-server
+      - --tls-port 6380
+      - --port 0
+      - --tls-cert-file /certs/redis.crt
+      - --tls-key-file /certs/redis.key
+      - --tls-ca-cert-file /certs/ca.crt
+      - --requirepass "12345678"
+    volumes:
+      - ./certs:/certs
+      - redis-data:/data
 
-            contratos_agrupados.append(contrato_info)
-
-        return JSONResponse(content=jsonable_encoder(contratos_agrupados))
-
-    except FileNotFoundError:
-        return JSONResponse(status_code=404, content={"erro": f"Arquivo '{arquivo}' não encontrado."})
-    except Exception as e:
-        return JSONResponse(status_code=50
+volumes:
+  redis-data:
+    }
+}
